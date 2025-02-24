@@ -45,39 +45,44 @@ function navigateTo(view) {
     `;
       break;
 
-    case "ajouterLocation":
-      const equipements = require("./database").getEquipements();
-      const equipementsOptions = equipements
-        .map(
-          (e) => `<option value="${e.id}">${e.nom} (Dispo: ${e.stock})</option>`
-        )
-        .join("");
-
-      content = `
-            <h1>Ajouter une Location</h1>
-            <form onsubmit="addLocation(event)">
-                <label for="equipement">Équipement :</label>
-                <select id="equipement" required>
-                    <option value="" disabled selected>Choisissez un équipement</option>
-                    ${equipementsOptions}
+      case "ajouterLocation":
+        const equipements = require("./database").getEquipements();
+        const equipementsOptions = equipements
+          .map(e => `<option value="${e.id}">${e.nom} (Dispo: ${e.stock})</option>`)
+          .join("");
+      
+        content = `
+          <h1>Ajouter une Location</h1>
+          <form onsubmit="addLocation(event)">
+            <label for="locataire">Nom du locataire :</label>
+            <input type="text" id="locataire" required />
+            <br /><br />
+            <label for="datePrise">Date de prise :</label>
+            <input type="date" id="datePrise" required />
+            <br /><br />
+            <label for="dateRetour">Date de retour prévue :</label>
+            <input type="date" id="dateRetour" required />
+            <br /><br />
+            
+            <!-- Conteneur pour les lignes d'équipement -->
+            <div id="equipementsContainer">
+              <div class="equipementRow">
+                <select class="equipementSelect" required>
+                  <option value="" disabled selected>Choisissez un équipement</option>
+                  ${equipementsOptions}
                 </select>
-                <br /><br />
-                <label for="locataire">Nom du locataire :</label>
-                <input type="text" id="locataire" required />
-                <br /><br />
-                <label for="datePrise">Date de prise :</label>
-                <input type="date" id="datePrise" required />
-                <br /><br />
-                <label for="dateRetour">Date de retour prévue :</label>
-                <input type="date" id="dateRetour" required />
-                <br /><br />
-                <label for="quantite">Quantité :</label>
-                <input type="number" id="quantite" required />
-                <br /><br />
-                <button type="submit">Ajouter la location</button>
-            </form>
+                <input type="number" class="equipementQuantity" placeholder="Quantité" required />
+                <button type="button" onclick="removeEquipementRow(this)">Supprimer</button>
+              </div>
+            </div>
+            <br />
+            <button type="button" onclick="addEquipementRow()">Ajouter un équipement</button>
+            <br /><br />
+            <button type="submit">Ajouter la location</button>
+          </form>
         `;
-      break;
+        break;
+      
 
     case "historique":
       const historique = require("./database").getHistorique();
@@ -221,6 +226,30 @@ function addEquipement(event) {
   require("./database").addEquipement(nom, stock, categorie);
   showMessage("Équipement ajouté avec succès !", "success");
   navigateTo("stock");
+}
+// Fonction pour ajouter une nouvelle ligne d'équipement
+function addEquipementRow() {
+  const equipements = require("./database").getEquipements();
+  const equipementsOptions = equipements
+    .map(e => `<option value="${e.id}">${e.nom} (Dispo: ${e.stock})</option>`)
+    .join("");
+    
+  const rowHtml = `
+    <div class="equipementRow">
+      <select class="equipementSelect" required>
+        <option value="" disabled selected>Choisissez un équipement</option>
+        ${equipementsOptions}
+      </select>
+      <input type="number" class="equipementQuantity" placeholder="Quantité" required />
+      <button type="button" onclick="removeEquipementRow(this)">Supprimer</button>
+    </div>
+  `;
+  document.getElementById("equipementsContainer").insertAdjacentHTML("beforeend", rowHtml);
+}
+
+// Fonction pour supprimer une ligne d'équipement
+function removeEquipementRow(button) {
+  button.parentElement.remove();
 }
 
 function editEquipement(id, currentNom, currentStock) {
@@ -368,43 +397,65 @@ function showMessage(message, type = "success") {
 function addLocation(event) {
   event.preventDefault();
 
-  const equipementId = parseInt(document.getElementById("equipement").value);
+  // Récupérer les champs globaux
   const locataire = document.getElementById("locataire").value;
   const datePrise = document.getElementById("datePrise").value;
   const dateRetour = document.getElementById("dateRetour").value;
-  const quantite = parseInt(document.getElementById("quantite").value);
 
-  if (
-    !equipementId ||
-    !locataire ||
-    !datePrise ||
-    !dateRetour ||
-    isNaN(quantite) ||
-    quantite <= 0
-  ) {
-    showMessage("Veuillez remplir correctement tous les champs.");
+  if (!locataire || !datePrise || !dateRetour) {
+    showMessage("Veuillez remplir les informations du locataire et les dates.");
     return;
   }
 
-  const equipement = require("./database")
-    .getEquipements()
-    .find((e) => e.id === equipementId);
-
-  if (equipement.stock < quantite) {
-    showMessage("Quantité insuffisante en stock.");
+  // Récupérer toutes les lignes d'équipement
+  const equipementRows = document.querySelectorAll(".equipementRow");
+  if (equipementRows.length === 0) {
+    showMessage("Veuillez ajouter au moins un équipement.");
     return;
   }
 
-  require("./database").addLocation(
-    equipementId,
-    locataire,
-    datePrise,
-    dateRetour,
-    quantite
-  );
-  showMessage("Location ajoutée avec succès !");
-  navigateTo("equipementsLoues"); // Naviguer vers la liste des équipements loués après l'ajout
+  const equipements = require("./database").getEquipements();
+  let allAdded = true;
+
+  equipementRows.forEach(row => {
+    const select = row.querySelector(".equipementSelect");
+    const quantityInput = row.querySelector(".equipementQuantity");
+
+    const equipementId = parseInt(select.value);
+    const quantity = parseInt(quantityInput.value);
+
+    if (!equipementId || isNaN(quantity) || quantity <= 0) {
+      showMessage("Veuillez choisir un équipement et saisir une quantité valide pour chaque ligne.");
+      allAdded = false;
+      return;
+    }
+    const equipement = equipements.find(e => e.id === equipementId);
+    if (!equipement) {
+      showMessage(`Équipement avec l'ID ${equipementId} introuvable.`);
+      allAdded = false;
+      return;
+    }
+    if (equipement.stock < quantity) {
+      showMessage(`Quantité insuffisante en stock pour ${equipement.nom}.`);
+      allAdded = false;
+      return;
+    }
+    // Ajout de la location pour cet équipement
+    require("./database").addLocation(
+      equipementId,
+      locataire,
+      datePrise,
+      dateRetour,
+      quantity
+    );
+  });
+
+  if (allAdded) {
+    showMessage("Locations ajoutées avec succès !");
+    navigateTo("equipementsLoues");
+  }
 }
+
 function returnEquipement(locationId) {
   try {
     // Appeler la fonction returnLocation définie dans database.js
