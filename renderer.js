@@ -44,6 +44,42 @@ function navigateTo(view) {
         </table>
     `;
       break;
+      case "reservations":
+  const reservations = require("./database").getReservations();
+  const reservationsHtml = reservations.map(r => `
+    <tr>
+      <td>${r.id}</td>
+      <td>${r.equipement}</td>
+      <td>${r.locataire}</td>
+      <td>${r.date_prise}</td>
+      <td>${r.date_retour}</td>
+      <td>${r.quantite}</td>
+      <td>${r.status}</td>
+      <td><button onclick="cancelReservation(${r.id})">Annuler</button></td>
+    </tr>
+  `).join("");
+  
+  content = `
+    <h1>Réservations</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Équipement</th>
+          <th>Locataire</th>
+          <th>Date de prise</th>
+          <th>Date de retour</th>
+          <th>Quantité</th>
+          <th>Statut</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${ reservationsHtml || "<tr><td colspan='8'>Aucune réservation.</td></tr>" }
+      </tbody>
+    </table>
+  `;
+  break;
 
       case "ajouterLocation":
         const equipements = require("./database").getEquipements();
@@ -206,6 +242,17 @@ function navigateTo(view) {
 function retournerEquipement(id) {
   alert(`Équipement ID ${id} retourné au stock !`);
 }
+function cancelReservation(locationId) {
+  try {
+    require("./database").cancelReservation(locationId);
+    showMessage("Réservation annulée avec succès !");
+    navigateTo("reservations"); // Actualiser la vue réservations
+  } catch (error) {
+    console.error("Erreur lors de l'annulation de la réservation :", error);
+    showMessage("Erreur : Impossible d'annuler la réservation.", "error");
+  }
+}
+
 
 function ajouterLocation(event) {
   event.preventDefault();

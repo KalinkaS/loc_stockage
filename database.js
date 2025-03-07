@@ -12,13 +12,13 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS locations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      equipement_id INTEGER NOT NULL,
-      locataire TEXT NOT NULL,
-      date_prise TEXT NOT NULL,
-      date_retour TEXT NOT NULL,
-      quantite INTEGER NOT NULL,
-      FOREIGN KEY(equipement_id) REFERENCES equipements(id)
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    equipementId INTEGER,
+    locataire TEXT,
+    date_prise TEXT,
+    date_retour TEXT,
+    quantite INTEGER,
+    status TEXT DEFAULT 'active'
   );
 
   CREATE TABLE IF NOT EXISTS historique (
@@ -116,88 +116,113 @@ function deleteEquipement(id) {
 
 // Fonctions pour gérer les locations
 function getLocations() {
-  return db
-    .prepare(
-      `
-        SELECT l.id, e.nom AS equipement, l.locataire, l.date_prise, l.date_retour, l.quantite
-        FROM locations l
-        JOIN equipements e ON l.equipement_id = e.id
+  return db.prepare(
     `
-    )
-    .all();
+      SELECT l.id, e.nom AS equipement, l.locataire, l.date_prise, l.date_retour, l.quantite, l.status
+      FROM locations l
+      JOIN equipements e ON l.equipementId = e.id
+      WHERE l.status = 'active'
+    `
+  ).all();
 }
 
-function addLocation(
-  equipement_id,
-  locataire,
-  date_prise,
-  date_retour,
-  quantite
-) {
-  db.prepare(
-    `
-        INSERT INTO locations (equipement_id, locataire, date_prise, date_retour, quantite)
-        VALUES (?, ?, ?, ?, ?)
-    `
-  ).run(equipement_id, locataire, date_prise, date_retour, quantite);
 
-  // Réduire la quantité disponible dans le stock
+
+function addLocation(equipementId, locataire, date_prise, date_retour, quantite) {
+  const today = new Date();
+  const priseDate = new Date(date_prise);
+  let status = 'active';
+  
+  if (priseDate > today) {
+    status = 'reservation';
+  }
+
   db.prepare(
     `
+      INSERT INTO locations (equipementId, locataire, date_prise, date_retour, quantite, status)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `
+  ).run(equipementId, locataire, date_prise, date_retour, quantite, status);
+
+  if (status === 'active') {
+    db.prepare(
+      `
         UPDATE equipements
         SET stock = stock - ?
         WHERE id = ?
-    `
-  ).run(quantite, equipement_id);
+      `
+    ).run(quantite, equipementId);
+  }
 }
 
+
 function returnLocation(locationId) {
-  const location = db
-    .prepare(
-      `
-        SELECT e.nom AS equipement, l.locataire, l.date_prise, l.date_retour, l.quantite
-        FROM locations l
-        JOIN equipements e ON l.equipement_id = e.id
-        WHERE l.id = ?
+  // Récupère la location en incluant le statut
+  const location = db.prepare(
     `
-    )
-    .get(locationId);
+      SELECT e.nom AS equipement, l.locataire, l.date_prise, l.date_retour, l.quantite, l.status
+      FROM locations l
+      JOIN equipements e ON l.equipementId = e.id
+      WHERE l.id = ?
+    `
+  ).get(locationId);
 
   if (!location) {
     throw new Error("Location introuvable.");
   }
 
-  db.prepare(
-    `
+  // Si la location est active, mettre à jour le stock et enregistrer dans l'historique
+  if (location.status === 'active') {
+    db.prepare(
+      `
         UPDATE equipements
         SET stock = stock + ?
         WHERE id = (
-            SELECT equipement_id
+            SELECT equipementId
             FROM locations
             WHERE id = ?
         )
-    `
-  ).run(location.quantite, locationId);
+      `
+    ).run(location.quantite, locationId);
 
-  db.prepare(`DELETE FROM locations WHERE id = ?`).run(locationId);
-
-  db.prepare(
-    `
+    db.prepare(
+      `
         INSERT INTO historique (equipement, locataire, date_prise, date_retour, quantite)
         VALUES (?, ?, ?, ?, ?)
-    `
-  ).run(
-    location.equipement,
-    location.locataire,
-    location.date_prise,
-    location.date_retour,
-    location.quantite
-  );
+      `
+    ).run(
+      location.equipement,
+      location.locataire,
+      location.date_prise,
+      location.date_retour,
+      location.quantite
+    );
+  }
+  
+  // Pour une réservation, on ne modifie pas le stock
+  // Dans les deux cas, on supprime la location (location active ou réservation)
+  db.prepare(`DELETE FROM locations WHERE id = ?`).run(locationId);
 }
+function cancelReservation(locationId) {
+  // Pour une réservation, il suffit de supprimer le record sans toucher au stock ni l'historique
+  db.prepare(`DELETE FROM locations WHERE id = ?`).run(locationId);
+}
+
 
 function getHistorique() {
   return db.prepare("SELECT * FROM historique").all();
 }
+function getReservations() {
+  return db.prepare(
+    `
+      SELECT l.id, e.nom AS equipement, l.locataire, l.date_prise, l.date_retour, l.quantite, l.status
+      FROM locations l
+      JOIN equipements e ON l.equipementId = e.id
+      WHERE l.status = 'reservation'
+    `
+  ).all();
+}
+
 
 function clearHistorique() {
   db.prepare("DELETE FROM historique").run();
@@ -216,4 +241,6 @@ module.exports = {
   getHistorique,
   clearHistorique,
   getCategories,
+  cancelReservation,
+  getReservations,
 };
