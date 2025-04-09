@@ -97,31 +97,27 @@ function navigateTo(view) {
       }).join("");
     
       content = `
-        <h1>Ajouter une Location</h1>
-        <form onsubmit="addLocation(event)">
-          <label for="locataire">Nom du locataire :</label>
-          <input type="text" id="locataire" required /><br/><br/>
-          
-          <label for="datePrise">Date de prise :</label>
-          <input type="date" id="datePrise" required /><br/><br/>
-          
-          <label for="dateRetour">Date de retour prévue :</label>
-          <input type="date" id="dateRetour" required /><br/><br/>
-          
-          <label for="itemSelect">Choisissez un article :</label>
-          <select id="itemSelect" required>
-            <option value="" disabled selected>Choisissez un équipement ou un kit</option>
-            ${itemsOptions}
-          </select>
-          <br/><br/>
-          
-          <label for="quantite">Quantité :</label>
-          <input type="number" id="quantite" placeholder="Quantité" required min="1"/>
-          <br/><br/>
-          
-          <button type="submit">Ajouter la location</button>
-        </form>
-      `;
+      <h1>Ajouter une Location</h1>
+      <form onsubmit="addLocation(event)">
+        <label for="locataire">Nom du locataire :</label>
+        <input type="text" id="locataire" required /><br/><br/>
+        
+        <label for="datePrise">Date de prise :</label>
+        <input type="date" id="datePrise" required /><br/><br/>
+        
+        <label for="dateRetour">Date de retour prévue :</label>
+        <input type="date" id="dateRetour" required /><br/><br/>
+    
+        <div id="itemsContainer">
+          <!-- Ligne initiale -->
+          ${generateItemRow()}
+        </div>
+        <button type="button" onclick="addItemRow()">Ajouter un équipement ou kit</button>
+        <br/><br/>
+        <button type="submit">Ajouter la location</button>
+      </form>
+    `;
+    
       break;
     }
     
@@ -206,16 +202,18 @@ function navigateTo(view) {
         const equipementsHtml = equipementsParCategorie.map((group) => {
           let itemsHtml = "";
           if (group.categorie.toLowerCase() === "kit") {
-            // Pour la catégorie "kit", générer une ligne pour chaque kit avec un bouton de suppression
+            // Pour la catégorie "kit", générer une ligne pour chaque kit en affichant également le stock
             itemsHtml = group.equipements.map((kit) => `
               <tr>
                 <td>${kit.id}</td>
                 <td>${kit.nom}</td>
                 <td>${kit.description}</td>
+                <td>${kit.stock}</td>
                 <td><button onclick="deleteKit(${kit.id})">Supprimer le kit</button></td>
               </tr>
             `).join("");
-          } else {
+          }
+           else {
             // Pour les autres catégories, générer une ligne pour chaque équipement
             itemsHtml = group.equipements.map((e) => `
               <tr>
@@ -489,98 +487,56 @@ function showMessage(message, type = "success") {
 function addLocation(event) {
   event.preventDefault();
 
-  // Vérifier si le formulaire utilise le mode unifié (pour kits et équipements)
-  const unifiedSelect = document.getElementById("itemSelect");
-  if (unifiedSelect) {
-    // Ce mode est utilisé : on récupère la valeur et on détermine le type (kit ou équipement)
-    const locataire = document.getElementById("locataire").value;
-    const datePrise = document.getElementById("datePrise").value;
-    const dateRetour = document.getElementById("dateRetour").value;
-    const quantite = parseInt(document.getElementById("quantite").value);
-    const itemValue = unifiedSelect.value; // ex: "e_5" ou "k_2"
-
-    if (!locataire || !datePrise || !dateRetour || isNaN(quantite) || quantite <= 0 || !itemValue) {
-      showMessage("Veuillez remplir correctement tous les champs.", "error");
-      return;
-    }
-
-    const [type, idStr] = itemValue.split("_");
-    const id = parseInt(idStr);
-
-    try {
-      if (type === "e") {
-        require("./database").addLocation(id, locataire, datePrise, dateRetour, quantite);
-      } else if (type === "k") {
-        // Assurez-vous d'avoir une fonction addKitLocation dans votre database.js
-        require("./database").addKitLocation(id, locataire, datePrise, dateRetour, quantite);
-      }
-      showMessage("Location ajoutée avec succès !");
-      navigateTo("equipementsLoues");
-    } catch (error) {
-      console.error("Erreur lors de l'ajout de la location :", error);
-      showMessage("Erreur lors de l'ajout de la location.", "error");
-    }
-    return;
-  }
-
-  // Sinon, utiliser votre logique actuelle pour plusieurs lignes d'équipements individuels
   const locataire = document.getElementById("locataire").value;
   const datePrise = document.getElementById("datePrise").value;
   const dateRetour = document.getElementById("dateRetour").value;
 
   if (!locataire || !datePrise || !dateRetour) {
-    showMessage("Veuillez remplir les informations du locataire et les dates.");
+    showMessage("Veuillez remplir les informations du locataire et les dates.", "error");
     return;
   }
 
-  // Récupérer toutes les lignes d'équipement (pour le mode multi-lignes)
-  const equipementRows = document.querySelectorAll(".equipementRow");
-  if (equipementRows.length === 0) {
-    showMessage("Veuillez ajouter au moins un équipement.");
+  const itemRows = document.querySelectorAll(".itemRow");
+  if (itemRows.length === 0) {
+    showMessage("Veuillez ajouter au moins un article à louer.", "error");
     return;
   }
 
-  const equipements = require("./database").getEquipements();
-  let allAdded = true;
+  let allValid = true;
 
-  equipementRows.forEach(row => {
-    const select = row.querySelector(".equipementSelect");
-    const quantityInput = row.querySelector(".equipementQuantity");
+  itemRows.forEach(row => {
+    const select = row.querySelector(".itemSelect");
+    const quantityInput = row.querySelector(".itemQuantity");
 
-    const equipementId = parseInt(select.value);
-    const quantity = parseInt(quantityInput.value);
+    const [type, idStr] = select.value.split("_");
+    const id = parseInt(idStr);
+    const quantite = parseInt(quantityInput.value);
 
-    if (!equipementId || isNaN(quantity) || quantity <= 0) {
-      showMessage("Veuillez choisir un équipement et saisir une quantité valide pour chaque ligne.");
-      allAdded = false;
+    if (!id || isNaN(quantite) || quantite <= 0) {
+      showMessage("Champs invalides détectés dans un équipement/kit.", "error");
+      allValid = false;
       return;
     }
-    const equipement = equipements.find(e => e.id === equipementId);
-    if (!equipement) {
-      showMessage(`Équipement avec l'ID ${equipementId} introuvable.`);
-      allAdded = false;
-      return;
+
+    try {
+      if (type === "e") {
+        require("./database").addLocation(id, locataire, datePrise, dateRetour, quantite);
+      } else if (type === "k") {
+        require("./database").addKitLocation(id, locataire, datePrise, dateRetour, quantite);
+      }
+    } catch (error) {
+      console.error("Erreur lors de l’ajout :", error);
+      showMessage("Une erreur est survenue lors de l'ajout.", "error");
+      allValid = false;
     }
-    if (equipement.stock < quantity) {
-      showMessage(`Quantité insuffisante en stock pour ${equipement.nom}.`);
-      allAdded = false;
-      return;
-    }
-    // Ajout de la location pour cet équipement
-    require("./database").addLocation(
-      equipementId,
-      locataire,
-      datePrise,
-      dateRetour,
-      quantity
-    );
   });
 
-  if (allAdded) {
+  if (allValid) {
     showMessage("Locations ajoutées avec succès !");
     navigateTo("equipementsLoues");
   }
 }
+
 
 
 function returnEquipement(locationId) {
@@ -626,8 +582,7 @@ function createKitHandler(event) {
   event.preventDefault();
   
   const nom = document.getElementById("kitNom").value;
-  const description = document.getElementById("kitDescription").value;
-  
+  const description = document.getElementById("kitDescription").value;  
   // Récupérer toutes les lignes de composants
   const componentRows = document.querySelectorAll(".componentRow");
   const composants = [];
@@ -675,4 +630,32 @@ function clearHistorique() {
     console.error("Erreur lors du vidage de l'historique :", error);
     showMessage("Erreur : Impossible de vider l'historique.", "error");
   }
+}
+function generateItemRow() {
+  const items = require("./database").getRentableItems();
+  const itemsOptions = items.map(item => {
+    const prefix = item.type === "equipment" ? "e_" : "k_";
+    const label = item.type === "equipment" ? `(Dispo: ${item.stock})` : `(Kit)`;
+    return `<option value="${prefix}${item.id}">${item.nom} ${label}</option>`;
+  }).join("");
+
+  return `
+    <div class="itemRow">
+      <select class="itemSelect" required>
+        <option value="" disabled selected>Choisissez un équipement ou un kit</option>
+        ${itemsOptions}
+      </select>
+      <input type="number" class="itemQuantity" placeholder="Quantité" required min="1" />
+      <button type="button" onclick="removeItemRow(this)">Supprimer</button>
+    </div><br/>
+  `;
+}
+
+function addItemRow() {
+  const container = document.getElementById("itemsContainer");
+  container.insertAdjacentHTML("beforeend", generateItemRow());
+}
+
+function removeItemRow(button) {
+  button.parentElement.remove();
 }

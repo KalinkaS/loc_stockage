@@ -50,6 +50,11 @@ db.exec(`
       nom TEXT NOT NULL UNIQUE
   );
 `);
+// Vérifie si la colonne "stock" existe dans la table kits sinon l'ajoute
+const kitColumnExists = db.prepare("PRAGMA table_info(kits)").all().some(col => col.name === "stock");
+if (!kitColumnExists) {
+  db.exec("ALTER TABLE kits ADD COLUMN stock INTEGER DEFAULT 0;");
+}
 // Vérifier si la colonne "kitId" existe dans la table locations
 const kitIdExists = db
   .prepare("PRAGMA table_info(locations)")
@@ -110,14 +115,14 @@ function getEquipementsParCategorie() {
   return categories.map((categorie) => {
     let items = [];
     if (categorie.nom.toLowerCase() === "kit") {
-      // Pour la catégorie "kit", récupérer les kits depuis la table kits
-      items = db.prepare("SELECT id, nom, description FROM kits").all();
+      // Pour la catégorie "kit", récupérer les kits avec le stock depuis la table kits
+      items = db.prepare("SELECT id, nom, description, stock FROM kits").all();
     } else {
       // Pour les autres catégories, récupérer les équipements de la table equipements
       items = db.prepare("SELECT id, nom, stock FROM equipements WHERE categorie_id = ?")
                 .all(categorie.id);
     }
-
+    
     return {
       categorie: categorie.nom,
       equipements: items // ici items est bien un tableau
@@ -223,6 +228,15 @@ function addLocation(equipementId, locataire, date_prise, date_retour, quantite)
   }
 }
 function addKitLocation(kitId, locataire, date_prise, date_retour, quantite) {
+  // Récupérer le kit pour vérifier le stock
+  const kit = db.prepare("SELECT * FROM kits WHERE id = ?").get(kitId);
+  if (!kit) {
+    throw new Error("Kit introuvable.");
+  }
+  if (kit.stock < quantite) {
+    throw new Error(`Stock insuffisant pour le kit ${kit.nom}. Stock disponible : ${kit.stock}, requis : ${quantite}`);
+  }
+
   const today = new Date();
   const priseDate = new Date(date_prise);
   let status = 'active';
@@ -230,29 +244,16 @@ function addKitLocation(kitId, locataire, date_prise, date_retour, quantite) {
     status = 'reservation';
   }
   
-  // Insertion de la location avec kitId renseigné
+  // Déduire le stock du kit
+  if (status === 'active') {
+    db.prepare("UPDATE kits SET stock = stock - ? WHERE id = ?").run(quantite, kitId);
+  }
+  
+  // Insertion de la location en enregistrant l'ID du kit
   db.prepare(`
       INSERT INTO locations (kitId, locataire, date_prise, date_retour, quantite, status)
       VALUES (?, ?, ?, ?, ?, ?)
   `).run(kitId, locataire, date_prise, date_retour, quantite, status);
-
-  // Si la location est active, déduire du stock pour chaque composant du kit
-  if (status === 'active') {
-    const components = db.prepare(`
-      SELECT equipementId, quantite
-      FROM kit_composition
-      WHERE kit_id = ?
-    `).all(kitId);
-    
-    components.forEach(component => {
-      // Déduire la quantité du stock (multipliée par la quantité de kits loués)
-      db.prepare(`
-        UPDATE equipements
-        SET stock = stock - ?
-        WHERE id = ?
-      `).run(component.quantite * quantite, component.equipementId);
-    });
-  }
 }
 
 
@@ -267,21 +268,9 @@ function returnLocation(locationId) {
   // Si la location est active, mettre à jour le stock et enregistrer dans l'historique
   if (location.status === 'active') {
     if (location.kitId) {
-      // Cas d'une location de kit : récupérer la composition du kit
-      const composition = db.prepare(`
-        SELECT equipementId, quantite
-        FROM kit_composition
-        WHERE kit_id = ?
-      `).all(location.kitId);
-      
-      // Pour chaque composant, rétablir le stock (multiplié par le nombre de kits loués)
-      composition.forEach(component => {
-        db.prepare(`
-          UPDATE equipements
-          SET stock = stock + ?
-          WHERE id = ?
-        `).run(component.quantite * location.quantite, component.equipementId);
-      });
+      // Mise à jour du stock du kit en incrémentant le stock dans la table kits
+      db.prepare("UPDATE kits SET stock = stock + ? WHERE id = ?")
+        .run(location.quantite, location.kitId);
       
       // Enregistrer dans l'historique avec le nom du kit
       const kit = db.prepare("SELECT nom FROM kits WHERE id = ?").get(location.kitId);
@@ -295,7 +284,8 @@ function returnLocation(locationId) {
         location.date_retour,
         location.quantite
       );
-    } else {
+    }
+     else {
       // Cas d'une location d'équipement individuel
       if (location.equipementId) {
         db.prepare(`
@@ -355,28 +345,27 @@ function addKitComponent(kitId, equipementId, quantite) {
     `INSERT INTO kit_composition (kit_id, equipementId, quantite) VALUES (?, ?, ?)`
   ).run(kitId, equipementId, quantite);
 }
-function createKitWithComponents(nom, description, composants) {
-  // composants est un tableau d'objets { equipementId, quantite }
-  
-  // Vérifier la disponibilité de chaque composant
+function createKitWithComponents(nom, description, composants, kitQuantity = 1) {
+  // Vérifier la disponibilité de chaque composant pour kitQuantity unités
   composants.forEach(item => {
     const equip = db.prepare("SELECT stock, nom FROM equipements WHERE id = ?").get(item.equipementId);
     if (!equip) {
       throw new Error(`Équipement avec l'ID ${item.equipementId} introuvable.`);
     }
-    if (equip.stock < item.quantite) {
-      throw new Error(`Stock insuffisant pour ${equip.nom}. Stock disponible : ${equip.stock}, requis : ${item.quantite}`);
+    if (equip.stock < item.quantite * kitQuantity) {
+      throw new Error(`Stock insuffisant pour ${equip.nom}. Stock disponible : ${equip.stock}, requis : ${item.quantite * kitQuantity}`);
     }
   });
   
-  // Créer le kit
-  const kitId = createKit(nom, description);
-  
+  // Créer le kit avec le stock initial défini à kitQuantity
+  const stmt = db.prepare(`INSERT INTO kits (nom, description, stock) VALUES (?, ?, ?)`);
+  const info = stmt.run(nom, description, kitQuantity);
+  const kitId = info.lastInsertRowid;
+
   // Pour chaque composant, déduire le stock et enregistrer la composition
   composants.forEach(item => {
-    // Déduire du stock
     db.prepare("UPDATE equipements SET stock = stock - ? WHERE id = ?")
-      .run(item.quantite, item.equipementId);
+      .run(item.quantite * kitQuantity, item.equipementId);
       
     // Enregistrer la composition du kit
     addKitComponent(kitId, item.equipementId, item.quantite);
@@ -384,6 +373,7 @@ function createKitWithComponents(nom, description, composants) {
   
   return kitId;
 }
+
 
 function getRentableItems() {
   // Récupérer les équipements individuels
