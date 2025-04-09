@@ -3,7 +3,7 @@ function navigateTo(view) {
   let content = "";
 
   switch (view) {
-    case "equipementsLoues":
+    case "equipementsLoues": {
       const locations = require("./database").getLocations();
       const locationsHtml = locations
         .map(
@@ -17,7 +17,7 @@ function navigateTo(view) {
             <td>${l.quantite}</td>
             <td><button onclick="returnEquipement(${l.id})">Retourner</button></td>
         </tr>
-    `
+      `
         )
         .join("");
 
@@ -42,44 +42,122 @@ function navigateTo(view) {
                 }
             </tbody>
         </table>
-    `;
+      `;
       break;
-
-    case "ajouterLocation":
-      const equipements = require("./database").getEquipements();
-      const equipementsOptions = equipements
+    }
+    case "reservations": {
+      const reservations = require("./database").getReservations();
+      const reservationsHtml = reservations
         .map(
-          (e) => `<option value="${e.id}">${e.nom} (Dispo: ${e.stock})</option>`
+          (r) => `
+    <tr>
+      <td>${r.id}</td>
+      <td>${r.equipement}</td>
+      <td>${r.locataire}</td>
+      <td>${r.date_prise}</td>
+      <td>${r.date_retour}</td>
+      <td>${r.quantite}</td>
+      <td>${r.status}</td>
+      <td><button onclick="cancelReservation(${r.id})">Annuler</button></td>
+    </tr>
+  `
         )
         .join("");
 
       content = `
-            <h1>Ajouter une Location</h1>
-            <form onsubmit="addLocation(event)">
-                <label for="equipement">Équipement :</label>
-                <select id="equipement" required>
-                    <option value="" disabled selected>Choisissez un équipement</option>
-                    ${equipementsOptions}
-                </select>
-                <br /><br />
-                <label for="locataire">Nom du locataire :</label>
-                <input type="text" id="locataire" required />
-                <br /><br />
-                <label for="datePrise">Date de prise :</label>
-                <input type="date" id="datePrise" required />
-                <br /><br />
-                <label for="dateRetour">Date de retour prévue :</label>
-                <input type="date" id="dateRetour" required />
-                <br /><br />
-                <label for="quantite">Quantité :</label>
-                <input type="number" id="quantite" required />
-                <br /><br />
-                <button type="submit">Ajouter la location</button>
-            </form>
-        `;
+    <h1>Réservations</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Équipement</th>
+          <th>Locataire</th>
+          <th>Date de prise</th>
+          <th>Date de retour</th>
+          <th>Quantité</th>
+          <th>Statut</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${reservationsHtml || "<tr><td colspan='8'>Aucune réservation.</td></tr>"}
+      </tbody>
+    </table>
+  `;
       break;
-
-    case "historique":
+    }
+    case "ajouterLocation": {
+      const items = require("./database").getRentableItems();
+      const itemsOptions = items.map(item => {
+        if (item.type === "equipment") {
+          return `<option value="e_${item.id}">${item.nom} (Dispo: ${item.stock})</option>`;
+        } else {
+          return `<option value="k_${item.id}">${item.nom} (Kit)</option>`;
+        }
+      }).join("");
+    
+      content = `
+      <h1>Ajouter une Location</h1>
+      <form onsubmit="addLocation(event)">
+        <label for="locataire">Nom du locataire :</label>
+        <input type="text" id="locataire" required /><br/><br/>
+        
+        <label for="datePrise">Date de prise :</label>
+        <input type="date" id="datePrise" required /><br/><br/>
+        
+        <label for="dateRetour">Date de retour prévue :</label>
+        <input type="date" id="dateRetour" required /><br/><br/>
+    
+        <div id="itemsContainer">
+          <!-- Ligne initiale -->
+          ${generateItemRow()}
+        </div>
+        <button type="button" onclick="addItemRow()">Ajouter un équipement ou kit</button>
+        <br/><br/>
+        <button type="submit">Ajouter la location</button>
+      </form>
+    `;
+    
+      break;
+    }
+    
+    case "manageKits": {
+      // Récupérer la liste des équipements pour remplir le menu déroulant
+      const equipements = require("./database").getEquipements();
+      const equipementsOptions = equipements
+        .map(e => `<option value="${e.id}">${e.nom} (Dispo: ${e.stock})</option>`)
+        .join("");
+    
+      content = `
+        <h1>Créer un Kit</h1>
+        <form onsubmit="createKitHandler(event)">
+          <label for="kitNom">Nom du kit :</label>
+          <input type="text" id="kitNom" required /><br/><br/>
+          
+          <label for="kitDescription">Description :</label>
+          <textarea id="kitDescription" required></textarea><br/><br/>
+          
+          <h3>Composants</h3>
+          <div id="componentsContainer">
+            <div class="componentRow">
+              <select class="componentSelect" required>
+                <option value="" disabled selected>Choisissez un équipement</option>
+                ${equipementsOptions}
+              </select>
+              <input type="number" class="componentQuantity" placeholder="Quantité" required min="1"/>
+              <button type="button" onclick="removeComponentRow(this)">Supprimer</button>
+            </div>
+          </div>
+          <br/>
+          <button type="button" onclick="addComponentRow()">Ajouter un composant</button>
+          <br/><br/>
+          <button type="submit">Créer le Kit</button>
+        </form>
+      `;
+      break;
+    }
+    
+    case "historique": {
       const historique = require("./database").getHistorique();
       const historiqueHtml = historique
         .map(
@@ -111,96 +189,113 @@ function navigateTo(view) {
                   </tr>
               </thead>
               <tbody>
-                  ${
-                    historiqueHtml ||
-                    "<tr><td colspan='6'>Aucun historique disponible.</td></tr>"
-                  }
+                  ${historiqueHtml || "<tr><td colspan='6'>Aucun historique disponible.</td></tr>"}
               </tbody>
           </table>
-        `;
+      `;
       break;
-
-    case "stock":
+    }
+    case "stock": {
       try {
-        const equipementsParCategorie =
-          require("./database").getEquipementsParCategorie();
-
-        // Générer l'affichage par catégorie
-        const equipementsHtml = equipementsParCategorie
-          .map((group) => {
-            const equipements = group.equipements
-              .map(
-                (e) => `
-                    <tr>
-                      <td>${e.id}</td>
-                      <td>${e.nom}</td>
-                      <td>${e.stock}</td>
-                      <td>
-                        <button onclick="editEquipement(${e.id}, '${e.nom}', ${e.stock})">Modifier</button>
-                        <button onclick="deleteEquipement(${e.id})">Supprimer</button>
-                      </td>
-                    </tr>
-                  `
-              )
-              .join("");
-
-            return `
-                <h3>${group.categorie}</h3>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Nom</th>
-                      <th>Quantité</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${
-                      equipements ||
-                      "<tr><td colspan='4'>Aucun équipement</td></tr>"
-                    }
-                  </tbody>
-                </table>
-              `;
-          })
-          .join("");
-
-        // Ajouter un formulaire pour insérer un équipement
-        content = `
-            <h1>Stock</h1>
-            <form onsubmit="addEquipement(event)">
-              <input type="text" id="nom" placeholder="Nom de l'équipement" required />
-              <input type="number" id="stock" placeholder="Quantité" required />
-              <select id="categorie" required>
-                <option value="" disabled selected>Choisissez une catégorie</option>
-                ${require("./database")
-                  .getCategories()
-                  .map((c) => `<option value="${c.id}">${c.nom}</option>`)
-                  .join("")}
-              </select>
-              <button type="submit">Ajouter</button>
-            </form>
-            ${equipementsHtml}
+        const equipementsParCategorie = require("./database").getEquipementsParCategorie();
+    
+        const equipementsHtml = equipementsParCategorie.map((group) => {
+          let itemsHtml = "";
+          if (group.categorie.toLowerCase() === "kit") {
+            // Pour la catégorie "kit", générer une ligne pour chaque kit en affichant également le stock
+            itemsHtml = group.equipements.map((kit) => `
+              <tr>
+                <td>${kit.id}</td>
+                <td>${kit.nom}</td>
+                <td>${kit.description}</td>
+                <td>${kit.stock}</td>
+                <td><button onclick="deleteKit(${kit.id})">Supprimer le kit</button></td>
+              </tr>
+            `).join("");
+          }
+           else {
+            // Pour les autres catégories, générer une ligne pour chaque équipement
+            itemsHtml = group.equipements.map((e) => `
+              <tr>
+                <td>${e.id}</td>
+                <td>${e.nom}</td>
+                <td>${e.stock}</td>
+                <td>
+                  <button onclick="editEquipement(${e.id}, '${e.nom}', ${e.stock})">Modifier</button>
+                  <button onclick="deleteEquipement(${e.id})">Supprimer</button>
+                </td>
+              </tr>
+            `).join("");
+          }
+    
+          return `
+            <h3>${group.categorie}</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Nom</th>
+                  <th>${group.categorie.toLowerCase() === "kit" ? "Description" : "Quantité"}</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml || `<tr><td colspan="4">Aucun élément</td></tr>`}
+              </tbody>
+            </table>
           `;
+        }).join("");
+    
+        content = `
+          <h1>Stock</h1>
+          <form onsubmit="addEquipement(event)">
+            <input type="text" id="nom" placeholder="Nom de l'équipement" required />
+            <input type="number" id="stock" placeholder="Quantité" required />
+            <select id="categorie" required>
+              <option value="" disabled selected>Choisissez une catégorie</option>
+              ${require("./database")
+                .getCategories()
+                .map((c) => `<option value="${c.id}">${c.nom}</option>`)
+                .join("")}
+            </select>
+            <button type="submit">Ajouter</button>
+          </form>
+          ${equipementsHtml}
+        `;
       } catch (error) {
         console.error("Erreur lors du chargement des équipements :", error);
         content = "<p>Erreur : Impossible de charger le stock.</p>";
       }
       break;
-
-    default:
+    }
+    
+    default: {
       content = `
-                <h1>Bienvenue</h1>
-                <p>Choisissez une option dans le menu pour commencer.</p>`;
+        <h1>Bienvenue</h1>
+        <p>Choisissez une option dans le menu pour commencer.</p>
+      `;
+      break;
+    }
   }
 
   viewContainer.innerHTML = content;
 }
 
+
 function retournerEquipement(id) {
   alert(`Équipement ID ${id} retourné au stock !`);
 }
+function cancelReservation(locationId) {
+  try {
+    require("./database").cancelReservation(locationId);
+    showMessage("Réservation annulée avec succès !");
+    navigateTo("reservations"); // Actualiser la vue réservations
+  } catch (error) {
+    console.error("Erreur lors de l'annulation de la réservation :", error);
+    showMessage("Erreur : Impossible d'annuler la réservation.", "error");
+  }
+}
+
 
 function ajouterLocation(event) {
   event.preventDefault();
@@ -221,6 +316,30 @@ function addEquipement(event) {
   require("./database").addEquipement(nom, stock, categorie);
   showMessage("Équipement ajouté avec succès !", "success");
   navigateTo("stock");
+}
+// Fonction pour ajouter une nouvelle ligne d'équipement
+function addEquipementRow() {
+  const equipements = require("./database").getEquipements();
+  const equipementsOptions = equipements
+    .map(e => `<option value="${e.id}">${e.nom} (Dispo: ${e.stock})</option>`)
+    .join("");
+    
+  const rowHtml = `
+    <div class="equipementRow">
+      <select class="equipementSelect" required>
+        <option value="" disabled selected>Choisissez un équipement</option>
+        ${equipementsOptions}
+      </select>
+      <input type="number" class="equipementQuantity" placeholder="Quantité" required />
+      <button type="button" onclick="removeEquipementRow(this)">Supprimer</button>
+    </div>
+  `;
+  document.getElementById("equipementsContainer").insertAdjacentHTML("beforeend", rowHtml);
+}
+
+// Fonction pour supprimer une ligne d'équipement
+function removeEquipementRow(button) {
+  button.parentElement.remove();
 }
 
 function editEquipement(id, currentNom, currentStock) {
@@ -368,43 +487,58 @@ function showMessage(message, type = "success") {
 function addLocation(event) {
   event.preventDefault();
 
-  const equipementId = parseInt(document.getElementById("equipement").value);
   const locataire = document.getElementById("locataire").value;
   const datePrise = document.getElementById("datePrise").value;
   const dateRetour = document.getElementById("dateRetour").value;
-  const quantite = parseInt(document.getElementById("quantite").value);
 
-  if (
-    !equipementId ||
-    !locataire ||
-    !datePrise ||
-    !dateRetour ||
-    isNaN(quantite) ||
-    quantite <= 0
-  ) {
-    showMessage("Veuillez remplir correctement tous les champs.");
+  if (!locataire || !datePrise || !dateRetour) {
+    showMessage("Veuillez remplir les informations du locataire et les dates.", "error");
     return;
   }
 
-  const equipement = require("./database")
-    .getEquipements()
-    .find((e) => e.id === equipementId);
-
-  if (equipement.stock < quantite) {
-    showMessage("Quantité insuffisante en stock.");
+  const itemRows = document.querySelectorAll(".itemRow");
+  if (itemRows.length === 0) {
+    showMessage("Veuillez ajouter au moins un article à louer.", "error");
     return;
   }
 
-  require("./database").addLocation(
-    equipementId,
-    locataire,
-    datePrise,
-    dateRetour,
-    quantite
-  );
-  showMessage("Location ajoutée avec succès !");
-  navigateTo("equipementsLoues"); // Naviguer vers la liste des équipements loués après l'ajout
+  let allValid = true;
+
+  itemRows.forEach(row => {
+    const select = row.querySelector(".itemSelect");
+    const quantityInput = row.querySelector(".itemQuantity");
+
+    const [type, idStr] = select.value.split("_");
+    const id = parseInt(idStr);
+    const quantite = parseInt(quantityInput.value);
+
+    if (!id || isNaN(quantite) || quantite <= 0) {
+      showMessage("Champs invalides détectés dans un équipement/kit.", "error");
+      allValid = false;
+      return;
+    }
+
+    try {
+      if (type === "e") {
+        require("./database").addLocation(id, locataire, datePrise, dateRetour, quantite);
+      } else if (type === "k") {
+        require("./database").addKitLocation(id, locataire, datePrise, dateRetour, quantite);
+      }
+    } catch (error) {
+      console.error("Erreur lors de l’ajout :", error);
+      showMessage("Une erreur est survenue lors de l'ajout.", "error");
+      allValid = false;
+    }
+  });
+
+  if (allValid) {
+    showMessage("Locations ajoutées avec succès !");
+    navigateTo("equipementsLoues");
+  }
 }
+
+
+
 function returnEquipement(locationId) {
   try {
     // Appeler la fonction returnLocation définie dans database.js
@@ -421,6 +555,72 @@ function returnEquipement(locationId) {
     showMessage("Erreur : Impossible de retourner l'équipement.", "error");
   }
 }
+function addComponentRow() {
+  // Récupérer la liste des équipements pour réutiliser le même menu déroulant
+  const equipements = require("./database").getEquipements();
+  const equipementsOptions = equipements
+    .map(e => `<option value="${e.id}">${e.nom} (Dispo: ${e.stock})</option>`)
+    .join("");
+    
+  const rowHtml = `
+    <div class="componentRow">
+      <select class="componentSelect" required>
+        <option value="" disabled selected>Choisissez un équipement</option>
+        ${equipementsOptions}
+      </select>
+      <input type="number" class="componentQuantity" placeholder="Quantité" required min="1"/>
+      <button type="button" onclick="removeComponentRow(this)">Supprimer</button>
+    </div>
+  `;
+  document.getElementById("componentsContainer").insertAdjacentHTML("beforeend", rowHtml);
+}
+
+function removeComponentRow(button) {
+  button.parentElement.remove();
+}
+function createKitHandler(event) {
+  event.preventDefault();
+  
+  const nom = document.getElementById("kitNom").value;
+  const description = document.getElementById("kitDescription").value;  
+  // Récupérer toutes les lignes de composants
+  const componentRows = document.querySelectorAll(".componentRow");
+  const composants = [];
+  
+  componentRows.forEach(row => {
+    const select = row.querySelector(".componentSelect");
+    const quantityInput = row.querySelector(".componentQuantity");
+    const equipementId = parseInt(select.value);
+    const quantite = parseInt(quantityInput.value);
+    
+    if (isNaN(equipementId) || isNaN(quantite) || quantite <= 0) {
+      showMessage("Veuillez remplir correctement tous les composants.", "error");
+      return;
+    }
+    
+    composants.push({ equipementId, quantite });
+  });
+  
+  try {
+    require("./database").createKitWithComponents(nom, description, composants);
+    showMessage("Kit créé avec succès !");
+    navigateTo("manageKits"); // Ou vous pouvez rediriger vers une liste des kits
+  } catch (error) {
+    console.error("Erreur lors de la création du kit :", error);
+    showMessage("Erreur lors de la création du kit.", "error");
+  }
+}
+function deleteKit(kitId) {
+  try {
+    require("./database").deleteKitFromStock(kitId);
+    showMessage("Kit supprimé et stock rétabli !");
+    navigateTo("stock");
+  } catch (error) {
+    console.error("Erreur lors de la suppression du kit :", error);
+    showMessage("Erreur lors de la suppression du kit.", "error");
+  }
+}
+
 function clearHistorique() {
   try {
     require("./database").clearHistorique();
@@ -430,4 +630,32 @@ function clearHistorique() {
     console.error("Erreur lors du vidage de l'historique :", error);
     showMessage("Erreur : Impossible de vider l'historique.", "error");
   }
+}
+function generateItemRow() {
+  const items = require("./database").getRentableItems();
+  const itemsOptions = items.map(item => {
+    const prefix = item.type === "equipment" ? "e_" : "k_";
+    const label = item.type === "equipment" ? `(Dispo: ${item.stock})` : `(Kit)`;
+    return `<option value="${prefix}${item.id}">${item.nom} ${label}</option>`;
+  }).join("");
+
+  return `
+    <div class="itemRow">
+      <select class="itemSelect" required>
+        <option value="" disabled selected>Choisissez un équipement ou un kit</option>
+        ${itemsOptions}
+      </select>
+      <input type="number" class="itemQuantity" placeholder="Quantité" required min="1" />
+      <button type="button" onclick="removeItemRow(this)">Supprimer</button>
+    </div><br/>
+  `;
+}
+
+function addItemRow() {
+  const container = document.getElementById("itemsContainer");
+  container.insertAdjacentHTML("beforeend", generateItemRow());
+}
+
+function removeItemRow(button) {
+  button.parentElement.remove();
 }
